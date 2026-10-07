@@ -1,11 +1,15 @@
 import io
 import numpy as np
+import os
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
 import tensorflow as tf
 from flask import Flask, request, jsonify, render_template
 from PIL import Image, ImageOps
 
 app = Flask(__name__)
-model = tf.keras.models.load_model("model.keras")
+model = tf.keras.models.load_model("fashion_minist_model.keras")
 
 LABELS = ["T-shirt/top", "Trouser", "Pullover", "Dress", "Coat",
           "Sandal", "Shirt", "Sneaker", "Bag", "Ankle boot"]
@@ -37,4 +41,6 @@ def predict():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    from waitress import serve
+    print("Running on http://127.0.0.1:5000")
+    serve(app, host="127.0.0.1", port=5000)
