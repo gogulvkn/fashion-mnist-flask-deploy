@@ -1,46 +1,52 @@
 import io
+
 import numpy as np
-import os
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-
-import tensorflow as tf
-from flask import Flask, request, jsonify, render_template
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from PIL import Image, ImageOps
+from tensorflow import keras
 
-app = Flask(__name__)
-model = tf.keras.models.load_model("fashion_minist_model.keras")
+CLASSES = ["T-shirt/top", "Trouser", "Pullover", "Dress", "Coat",
+           "Sandal", "Shirt", "Sneaker", "Bag", "Ankle boot"]
 
-LABELS = ["T-shirt/top", "Trouser", "Pullover", "Dress", "Coat",
-          "Sandal", "Shirt", "Sneaker", "Bag", "Ankle boot"]
+app = FastAPI(title="Fashion MNIST API (TensorFlow)")
+model = keras.models.load_model("model.keras")
 
 
-@app.route("/")
+@app.get("/", include_in_schema=False)
 def index():
-    return render_template("index.html")
+    return FileResponse("index.html")
 
 
-@app.route("/predict", methods=["POST"])
-def predict():
-    if "file" not in request.files:
-        return jsonify(error="no file"), 400
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
-    img = Image.open(io.BytesIO(request.files["file"].read())).convert("L")
-    if request.form.get("invert") == "true":
+
+@app.post("/predict")
+async def predict(file: UploadFile = File(...), invert: bool = False):
+    """Upload an image. Fashion-MNIST items are light on a dark background;
+    pass invert=true for normal dark-on-white photos."""
+    try:
+        img = Image.open(io.BytesIO(await file.read())).convert("L")
+    except Exception:
+        raise HTTPException(400, "Invalid image")
+
+    if invert:
         img = ImageOps.invert(img)
     img = img.resize((28, 28))
 
-    x = np.array(img, dtype="float32")[None, ..., None] / 255.0
-    p = model.predict(x, verbose=0)[0]
-    top = np.argsort(p)[::-1][:3]
+    x = np.array(img, dtype="float32")[None, ..., None]  # (1, 28, 28, 1)
+    probs = model.predict(x, verbose=0)[0]
 
-    return jsonify(
-        prediction=LABELS[top[0]],
-        top3=[{"label": LABELS[i], "prob": round(float(p[i]), 4)} for i in top],
-    )
+    top = int(np.argmax(probs))
+    return {
+        "class": CLASSES[top],
+        "confidence": round(float(probs[top]), 4),
+        "probabilities": {c: round(float(p), 4) for c, p in zip(CLASSES, probs)},
+    }
 
 
 if __name__ == "__main__":
-    from waitress import serve
-    print("Running on http://127.0.0.1:5000")
-    serve(app, host="127.0.0.1", port=5000)
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fashion MNIST Classifier</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --text:#e8eaed; --muted:#8b93a1; --accent:#5b8cff; --border:#2a2e38; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text);
+         display:flex; justify-content:center; padding:32px 16px; }
+  main { width:100%; max-width:520px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; }
+  #drop { border:2px dashed var(--border); border-radius:10px; min-height:200px; display:flex;
+          align-items:center; justify-content:center; text-align:center; color:var(--muted);
+          cursor:pointer; transition:border-color .15s; overflow:hidden; }
+  #drop.over { border-color:var(--accent); }
+  #preview { max-width:100%; max-height:260px; display:none; image-rendering:pixelated; }
+  .row { display:flex; align-items:center; justify-content:space-between; margin-top:14px; gap:12px; }
+  label { display:flex; align-items:center; gap:8px; font-size:.9rem; color:var(--muted); }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 20px;
+           font-size:.95rem; cursor:pointer; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  #result { margin-top:20px; display:none; }
+  #top { font-size:1.2rem; font-weight:600; margin-bottom:12px; }
+  .bar { display:flex; align-items:center; gap:10px; font-size:.82rem; margin:5px 0; }
+  .bar span.name { width:90px; color:var(--muted); }
+  .bar .track { flex:1; height:8px; background:var(--border); border-radius:4px; overflow:hidden; }
+  .bar .fill { height:100%; background:var(--accent); width:0; transition:width .3s; }
+  .bar span.pct { width:46px; text-align:right; }
+  #err { color:#ff6b6b; margin-top:12px; font-size:.9rem; display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Fashion MNIST Classifier</h1>
+  <p class="sub">Upload a clothing image and the model predicts its category.</p>
+
+  <div class="card">
+    <div id="drop">
+      <div id="hint">Click or drop an image here</div>
+      <img id="preview" alt="preview">
+    </div>
+    <input id="file" type="file" accept="image/*" hidden>
+
+    <div class="row">
+      <label><input id="invert" type="checkbox" checked> Invert (dark item on light background)</label>
+      <button id="go" disabled>Predict</button>
+    </div>
+
+    <div id="err"></div>
+
+    <div id="result">
+      <div id="top"></div>
+      <div id="bars"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+  // Empty string = same origin (page served by the FastAPI app).
+  // Set e.g. "http://localhost:8000" if you open this file directly.
+  const API = "";
+
+  const drop = document.getElementById("drop");
+  const fileInput = document.getElementById("file");
+  const preview = document.getElementById("preview");
+  const hint = document.getElementById("hint");
+  const go = document.getElementById("go");
+  const err = document.getElementById("err");
+  const result = document.getElementById("result");
+  let file = null;
+
+  function setFile(f) {
+    if (!f || !f.type.startsWith("image/")) return;
+    file = f;
+    preview.src = URL.createObjectURL(f);
+    preview.style.display = "block";
+    hint.style.display = "none";
+    go.disabled = false;
+    result.style.display = "none";
+    err.style.display = "none";
+  }
+
+  drop.onclick = () => fileInput.click();
+  fileInput.onchange = e => setFile(e.target.files[0]);
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    setFile(e.dataTransfer.files[0]);
+  };
+
+  go.onclick = async () => {
+    if (!file) return;
+    go.disabled = true;
+    go.textContent = "Predicting...";
+    err.style.display = "none";
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const inv = document.getElementById("invert").checked;
+      const res = await fetch(`${API}/predict?invert=${inv}`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      show(await res.json());
+    } catch (e) {
+      err.textContent = "Error: " + e.message;
+      err.style.display = "block";
+    } finally {
+      go.disabled = false;
+      go.textContent = "Predict";
+    }
+  };
+
+  function show(data) {
+    document.getElementById("top").textContent =
+      `${data["class"]} (${(data.confidence * 100).toFixed(1)}%)`;
+    const bars = document.getElementById("bars");
+    bars.innerHTML = "";
+    Object.entries(data.probabilities)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([name, p]) => {
+        const row = document.createElement("div");
+        row.className = "bar";
+        row.innerHTML = `<span class="name">${name}</span>
+          <div class="track"><div class="fill"></div></div>
+          <span class="pct">${(p * 100).toFixed(1)}%</span>`;
+        bars.appendChild(row);
+        requestAnimationFrame(() => row.querySelector(".fill").style.width = (p * 100) + "%");
+      });
+    result.style.display = "block";
+  }
+</script>
+</body>
+</html>
